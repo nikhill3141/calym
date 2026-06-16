@@ -31,11 +31,17 @@ export function DashboardProfile({ email, image, name }: DashboardProfileProps) 
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-2xl border p-3 calym-card">
       <div className="flex items-center gap-3">
-        <div className="relative flex size-12 items-center justify-center overflow-hidden rounded-lg bg-muted text-base font-semibold">
+        <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-sm font-semibold text-white shadow-lg shadow-indigo-500/15">
           {image ? (
-            <Image alt={displayName} fill sizes="48px" src={image} />
+            <Image
+              alt={displayName}
+              className="object-cover"
+              fill
+              sizes="40px"
+              src={image}
+            />
           ) : (
             <>
               <UserRound className="size-5" />
@@ -44,16 +50,16 @@ export function DashboardProfile({ email, image, name }: DashboardProfileProps) 
           )}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold">{displayName}</p>
-          <p className="truncate text-sm text-muted-foreground">{email}</p>
+          <p className="truncate text-sm font-semibold">{displayName}</p>
+          <p className="truncate text-xs calym-muted">{email}</p>
         </div>
       </div>
       <Button
-        className="mt-4 w-full justify-start"
+        className="calym-quiet-button mt-3 h-9 w-full justify-start text-sm"
         onClick={handleSignOut}
         variant="outline"
       >
-        <LogOut className="mr-2 size-4" />
+        <LogOut className="mr-2 size-3.5" />
         Sign out
       </Button>
     </div>

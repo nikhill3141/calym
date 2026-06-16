@@ -59,11 +59,15 @@ function fallbackSubjectFromSnippet(snippet: string) {
   return `${subject[0]?.toUpperCase() ?? "E"}${subject.slice(1)}`;
 }
 
-function readableSender(fromHeader: string) {
-  const cleaned = fromHeader.trim();
+function emailFromHeader(header: string) {
+  return header.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "";
+}
+
+function readableContact(header: string, fallback: string) {
+  const cleaned = header.trim();
 
   if (!cleaned) {
-    return "Sender needs review";
+    return fallback;
   }
 
   const quoted = cleaned.match(/"([^"]+)"/)?.[1];
@@ -78,7 +82,7 @@ function readableSender(fromHeader: string) {
     return named;
   }
 
-  const email = cleaned.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  const email = emailFromHeader(cleaned);
 
   if (email) {
     return email.split("@")[0].replace(/[._-]+/g, " ");
@@ -189,15 +193,22 @@ export async function GET() {
     .map((message) => {
       const snippet = message.snippet ?? "";
       const subject = headerValue(message, "Subject").trim();
+      const fromHeader = headerValue(message, "From");
+      const toHeader = headerValue(message, "To");
+      const fromEmail = emailFromHeader(fromHeader);
+      const toEmail = emailFromHeader(toHeader);
 
       return {
         date: headerValue(message, "Date"),
-        from: readableSender(headerValue(message, "From")),
+        from: readableContact(fromHeader, fromEmail || "Unknown sender"),
+        fromEmail,
         id: message.id ?? crypto.randomUUID(),
         labels: message.labelIds ?? [],
         snippet,
         subject: subject || fallbackSubjectFromSnippet(snippet),
         threadId: message.threadId ?? "",
+        to: readableContact(toHeader, toEmail),
+        toEmail,
       };
     });
 

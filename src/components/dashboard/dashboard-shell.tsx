@@ -60,13 +60,17 @@ type DashboardEmail = {
   action: string;
   category: "Action needed" | "Meeting" | "Negative reply" | "Reschedule" | "Review";
   date: string;
+  direction: "incoming" | "outgoing";
   from: string;
+  fromEmail: string;
   id: string;
   priority: "High" | "Medium" | "Normal";
   prompt: string;
   reason: string;
   snippet: string;
   subject: string;
+  to: string;
+  toEmail: string;
 };
 
 type DashboardEvent = {
@@ -85,7 +89,9 @@ type PreparedAction = {
   description: string;
   id: string;
   payload: Record<string, unknown>;
+  recipientEmail?: string;
   risk: "low" | "high";
+  sourceCommand?: string;
   title: string;
   type: "calendar_event" | "email_draft" | "email_send";
 };
@@ -102,10 +108,13 @@ type LiveDataResponse = {
   emails?: {
     date: string;
     from: string;
+    fromEmail?: string;
     id: string;
     labels: string[];
     snippet: string;
     subject: string;
+    to: string;
+    toEmail?: string;
   }[];
   error?: string;
   loadedAt?: string;
@@ -129,25 +138,33 @@ const fallbackEmails: DashboardEmail[] = [
     action: "Draft reply",
     category: "Action needed",
     date: "",
+    direction: "incoming",
     from: "Corsair Team",
+    fromEmail: "demo@example.com",
     id: "fallback-corsair",
     priority: "High",
     prompt: "Draft a reply to Corsair about the API access checklist.",
     reason: "Needs setup attention before the next build step.",
     snippet: "Connect Gmail and refresh live data to replace this sample.",
     subject: "API access and integration checklist",
+    to: "You",
+    toEmail: "",
   },
   {
     action: "Schedule",
     category: "Meeting",
     date: "",
+    direction: "incoming",
     from: "Aarav Mehta",
+    fromEmail: "aarav@example.com",
     id: "fallback-review",
     priority: "High",
     prompt: "Schedule a follow-up with Aarav tomorrow and draft a confirmation.",
     reason: "Meeting-related thread with scheduling context.",
     snippet: "This is placeholder data until Corsair returns your real inbox.",
     subject: "Follow-up on tomorrow's product review",
+    to: "You",
+    toEmail: "",
   },
 ];
 
@@ -183,7 +200,7 @@ const fastActions = [
     key: "C",
     label: "Compose email",
     icon: Send,
-    prompt: "Create a Gmail draft to dev@corsair.dev saying I look forward to our meeting.",
+    prompt: "Create a Gmail draft to demo@example.com saying I look forward to our meeting.",
   },
   {
     key: "/",
@@ -196,7 +213,7 @@ const fastActions = [
     label: "Create meeting",
     icon: CalendarDays,
     prompt:
-      "Send a calendar invite to dev@corsair.dev at 9 AM next Thursday. Send him an email too saying I look forward to our meeting.",
+      "Send a calendar invite to demo@example.com at 9 AM next Thursday. Send them an email too saying I look forward to our meeting.",
   },
   {
     key: "E",
@@ -209,8 +226,8 @@ const fastActions = [
 type FastAction = (typeof fastActions)[number];
 
 const promptSuggestions = [
-  "Send a calendar invite to dev@corsair.dev at 9 AM next Thursday. Send him an email too saying I look forward to our meeting.",
-  "Create a Gmail draft to dev@corsair.dev saying the CalyM demo is ready.",
+  "Send a calendar invite to demo@example.com at 9 AM next Thursday. Send them an email too saying I look forward to our meeting.",
+  "Create a Gmail draft to demo@example.com saying the CalyM demo is ready.",
   "Find recent unread emails from Corsair.",
 ];
 
@@ -364,6 +381,8 @@ function mapLiveEmail(email: NonNullable<LiveDataResponse["emails"]>[number]) {
       ? "Medium"
       : "Normal";
   const category = inferEmailCategory(email);
+  const direction = email.labels.includes("SENT") ? "outgoing" : "incoming";
+  const contact = direction === "outgoing" ? email.to : email.from;
   const action =
     category === "Reschedule"
       ? "Handle reschedule"
@@ -377,18 +396,22 @@ function mapLiveEmail(email: NonNullable<LiveDataResponse["emails"]>[number]) {
     action,
     category,
     date: email.date,
+    direction,
     from: email.from,
+    fromEmail: email.fromEmail ?? "",
     id: email.id,
     priority,
     prompt:
       category === "Reschedule"
-        ? `Draft a reschedule reply to ${email.from} about "${email.subject}".`
+        ? `Draft a reschedule reply to ${contact} about "${email.subject}".`
         : category === "Negative reply"
-          ? `Categorize and draft a respectful reply to ${email.from} about "${email.subject}".`
-          : `Draft a reply to ${email.from} about "${email.subject}".`,
+          ? `Categorize and draft a respectful reply to ${contact} about "${email.subject}".`
+          : `Draft a reply to ${contact} about "${email.subject}".`,
     reason: email.snippet || "Real Gmail message loaded through Corsair.",
     snippet: email.snippet,
     subject: email.subject,
+    to: email.to,
+    toEmail: email.toEmail ?? "",
   } satisfies DashboardEmail;
 }
 
@@ -409,16 +432,167 @@ function mapLiveEvent(
   } satisfies DashboardEvent;
 }
 
+function contactDisplayName(value: string) {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "Recipient";
+  }
+
+  const namedMatch = trimmedValue.match(/^"?([^"<]+?)"?\s*<[^>]+>$/);
+
+  if (namedMatch?.[1]) {
+    return namedMatch[1].trim();
+  }
+
+  if (trimmedValue.includes("@")) {
+    return trimmedValue.split("@")[0].replace(/[._-]+/g, " ");
+  }
+
+  return trimmedValue;
+}
+
+function contactInitial(value: string) {
+  return contactDisplayName(value).charAt(0).toUpperCase() || "U";
+}
+
+function extractEmailAddress(value: string) {
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "";
+}
+
+function usableContact(value: string) {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  if (/^(unknown|sender needs review|recipient needs review)$/i.test(trimmedValue)) {
+    return "";
+  }
+
+  return trimmedValue;
+}
+
+function sendToLabel(email: DashboardEmail) {
+  const promptEmail = extractEmailAddress(
+    [email.prompt, email.reason, email.snippet, email.subject].join(" "),
+  );
+
+  return (
+    usableContact(email.toEmail) ||
+    usableContact(email.to) ||
+    promptEmail ||
+    "Recipient"
+  );
+}
+
+function receivedFromLabel(email: DashboardEmail) {
+  return usableContact(email.fromEmail) || usableContact(email.from) || "Sender unavailable";
+}
+
+function requestRecipientLabel(email: DashboardEmail) {
+  if (email.direction === "outgoing") {
+    return sendToLabel(email);
+  }
+
+  const promptEmail = extractEmailAddress(
+    [email.prompt, email.reason, email.snippet, email.subject].join(" "),
+  );
+
+  return usableContact(email.fromEmail) || promptEmail || usableContact(email.from) || "Recipient unavailable";
+}
+
+function requestEmailBody(email: DashboardEmail) {
+  if (email.direction === "outgoing") {
+    return email.reason || email.snippet || `Meeting request: ${email.subject}`;
+  }
+
+  return `CalyM sent a meeting request to ${requestRecipientLabel(
+    email,
+  )}. Request: ${email.prompt}`;
+}
+
+function subjectFromCommand(command: string, actions: PreparedAction[]) {
+  const normalizedCommand = command.toLowerCase();
+
+  if (normalizedCommand.includes("reschedule")) {
+    return "Request to reschedule our meeting";
+  }
+
+  if (normalizedCommand.includes("demo")) {
+    return "CalyM demo update";
+  }
+
+  if (actions.some((action) => action.type === "calendar_event")) {
+    return "Meeting invitation prepared";
+  }
+
+  return "Email prepared by CalyM";
+}
+
+function buildPromptOutboxEmail({
+  actions,
+  command,
+  user,
+}: {
+  actions: PreparedAction[];
+  command: string;
+  user: DashboardShellProps["user"];
+}) {
+  if (actions.length === 0) {
+    return null;
+  }
+
+  const recipientEmail =
+    actions.find((action) => action.recipientEmail)?.recipientEmail ||
+    extractEmailAddress(command);
+
+  if (!recipientEmail) {
+    return null;
+  }
+
+  const hasCalendarAction = actions.some(
+    (action) => action.type === "calendar_event",
+  );
+  const hasEmailAction = actions.some((action) => action.type !== "calendar_event");
+  const actionLabel = hasCalendarAction
+    ? hasEmailAction
+      ? "Meeting + email"
+      : "Schedule"
+    : "Draft reply";
+  const userDisplayName = user.name.trim() || user.email;
+  const subject = subjectFromCommand(command, actions);
+
+  return {
+    action: actionLabel,
+    category: hasCalendarAction ? "Meeting" : "Action needed",
+    date: new Date().toISOString(),
+    direction: "outgoing",
+    from: userDisplayName,
+    fromEmail: user.email,
+    id: `prompt-outbox-${recipientEmail}-${Date.now()}`,
+    priority: hasCalendarAction ? "High" : "Medium",
+    prompt: command,
+    reason: `CalyM prepared this request for ${recipientEmail}: ${command}`,
+    snippet: command,
+    subject,
+    to: recipientEmail,
+    toEmail: recipientEmail,
+  } satisfies DashboardEmail;
+}
+
 export function DashboardShell({ connections, user }: DashboardShellProps) {
   const activityIdRef = useRef(0);
   const toastIdRef = useRef(0);
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [command, setCommand] = useState(
-    "Send a calendar invite to dev@corsair.dev at 9 AM next Thursday. Send him an email too saying I look forward to our meeting.",
+    "Send a calendar invite to demo@example.com at 9 AM next Thursday. Send them an email too saying I look forward to our meeting.",
   );
   const [query, setQuery] = useState("");
   const [emails, setEmails] = useState<DashboardEmail[]>(fallbackEmails);
   const [events, setEvents] = useState<DashboardEvent[]>(fallbackAgenda);
+  const [promptOutboxEmails, setPromptOutboxEmails] = useState<DashboardEmail[]>([]);
   const [preparedActions, setPreparedActions] = useState<PreparedAction[]>([]);
   const [isLoadingLiveData, setIsLoadingLiveData] = useState(true);
   const [isPreparingPrompt, setIsPreparingPrompt] = useState(false);
@@ -435,12 +609,16 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
 
   const activeNav = navItems.find((item) => item.tab === activeTab);
   const connectedCount = connections.filter((connection) => connection.connected).length;
+  const inboxEmails = useMemo(
+    () => [...promptOutboxEmails, ...emails],
+    [emails, promptOutboxEmails],
+  );
 
   const metrics = useMemo(
     () => [
       {
-        label: "Real emails loaded",
-        value: emails.length.toString(),
+        label: "Inbox threads",
+        value: inboxEmails.length.toString(),
         helper: liveLoadedAt ? `Updated ${formatDate(liveLoadedAt)}` : "Loading from Gmail",
       },
       {
@@ -459,23 +637,23 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
         helper: "Corsair tenant scoped to this user",
       },
     ],
-    [connectedCount, emails.length, events.length, liveLoadedAt, preparedActions.length],
+    [connectedCount, events.length, inboxEmails.length, liveLoadedAt, preparedActions.length],
   );
 
   const visibleEmails = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     if (!normalizedQuery) {
-      return emails;
+      return inboxEmails;
     }
 
-    return emails.filter((email) =>
-      [email.category, email.from, email.subject, email.reason, email.priority]
+    return inboxEmails.filter((email) =>
+      [email.category, email.from, email.to, email.subject, email.reason, email.priority]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [emails, query]);
+  }, [inboxEmails, query]);
 
   const pushActivity = useCallback((message: string) => {
     activityIdRef.current += 1;
@@ -607,7 +785,28 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
         throw new Error(data.error ?? "Could not prepare prompt actions.");
       }
 
-      setPreparedActions(data.actions ?? []);
+      const actions = data.actions ?? [];
+      const promptOutboxEmail = buildPromptOutboxEmail({
+        actions,
+        command,
+        user,
+      });
+
+      setPreparedActions(actions);
+
+      if (promptOutboxEmail) {
+        setPromptOutboxEmails((current) =>
+          [
+            promptOutboxEmail,
+            ...current.filter(
+              (email) =>
+                email.toEmail !== promptOutboxEmail.toEmail ||
+                email.prompt !== promptOutboxEmail.prompt,
+            ),
+          ].slice(0, 8),
+        );
+      }
+
       setActiveTab("agent");
       pushActivity(data.summary ?? "Prompt prepared.");
       pushToast({
@@ -675,30 +874,28 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
     <main className="calym-dashboard h-screen overflow-hidden">
       <ToastViewport toasts={toasts} />
       <div className="mx-auto flex h-screen max-w-[1680px] overflow-hidden">
-        <aside className="calym-surface hidden h-screen w-[22rem] shrink-0 border-r px-6 py-6 backdrop-blur-xl xl:w-96 lg:flex lg:flex-col">
+        <aside className="calym-surface hidden h-screen w-[22rem] shrink-0 border-r px-5 py-5 backdrop-blur-xl xl:w-96 lg:flex lg:flex-col">
           <div className="flex items-center gap-4">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-xl font-semibold text-white shadow-lg shadow-indigo-500/25">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-lg font-semibold text-white shadow-lg shadow-indigo-500/25">
               C
             </div>
             <div>
-              <p className="text-2xl font-semibold dark:text-white">CalyM</p>
-              <p className="text-base text-indigo-700 dark:text-indigo-200">
+              <p className="text-xl font-semibold dark:text-white">CalyM</p>
+              <p className="text-sm text-indigo-700 dark:text-indigo-200">
                 Mail + Calendar AI
               </p>
             </div>
           </div>
 
-          <nav className="mt-7 flex flex-col gap-2">
+          <nav className="mt-5 flex flex-col gap-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.tab;
 
               return (
                 <button
-                  className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left text-base font-medium transition-colors ${
-                    isActive
-                      ? "calym-primary-action"
-                      : "text-slate-600 dark:text-slate-300"
+                  className={`flex items-center gap-3 rounded-lg px-4 py-2.5 text-left text-base font-medium transition-colors ${
+                    isActive ? "calym-active-tab" : "text-slate-600 dark:text-slate-300"
                   }`}
                   key={item.tab}
                   onClick={() => setActiveTab(item.tab)}
@@ -713,7 +910,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
 
           <ActivityRail activity={activity} />
 
-          <div className="mt-auto">
+          <div className="mt-4 shrink-0">
             <DashboardProfile
               email={user.email}
               image={user.image}
@@ -723,13 +920,13 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
         </aside>
 
         <section className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="calym-surface z-10 shrink-0 border-b px-6 py-4 backdrop-blur-xl">
-            <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+          <header className="calym-surface z-10 shrink-0 border-b px-6 py-3 backdrop-blur-xl">
+            <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
               <div>
-                <p className="text-base font-medium text-muted-foreground">
+                <p className="text-sm font-medium text-muted-foreground">
                   {activeNav?.label ?? "Dashboard"}
                 </p>
-                <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
                   Welcome, {user.name}
                 </h1>
               </div>
@@ -743,7 +940,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                 </div>
                 <Button
                   aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                  className="calym-quiet-button h-12 px-4 text-base"
+                  className="calym-quiet-button h-10 px-4 text-base"
                   onClick={toggleTheme}
                   variant="outline"
                 >
@@ -755,7 +952,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                   {theme === "dark" ? "Light" : "Dark"}
                 </Button>
                 <Button
-                  className="calym-quiet-button h-12 px-5 text-base"
+                  className="calym-quiet-button h-10 px-4 text-base"
                   disabled={isLoadingLiveData}
                   onClick={loadLiveData}
                   variant="outline"
@@ -768,7 +965,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                   Refresh live data
                 </Button>
                 <Button
-                  className="calym-primary-action h-12 px-5 text-base"
+                  className="calym-primary-action h-10 px-4 text-base"
                   onClick={() => setActiveTab("overview")}
                 >
                   <Sparkles className="mr-2 size-4" />
@@ -777,7 +974,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.tab;
@@ -786,7 +983,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                   <button
                     className={`flex shrink-0 items-center gap-2 rounded-lg border px-4 py-3 text-base font-medium ${
                       isActive
-                        ? "calym-primary-action border-transparent"
+                        ? "calym-active-tab border-transparent"
                         : "border-indigo-100 bg-slate-50/80 text-slate-600 dark:border-white/10 dark:bg-zinc-900/80 dark:text-slate-300"
                     }`}
                     key={item.tab}
@@ -822,6 +1019,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                 onPromptSelect={applyPrompt}
                 onQueryChange={setQuery}
                 query={query}
+                user={user}
               />
             ) : null}
 
@@ -873,27 +1071,25 @@ function MobileActivity({ activity }: { activity: ActivityItem[] }) {
 
 function ActivityRail({ activity }: { activity: ActivityItem[] }) {
   return (
-    <section className="mt-6 flex min-h-0 flex-[1.35] flex-col rounded-2xl border p-5 calym-card">
-      <div className="flex items-center gap-2">
-        <Sparkles className="size-5 text-indigo-600 dark:text-indigo-300" />
-        <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+    <section className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4 dark:border-white/10">
+      <div className="flex shrink-0 items-center gap-2">
+        <Sparkles className="size-4 text-indigo-600 dark:text-indigo-300" />
+        <h2 className="text-base font-semibold text-slate-950 dark:text-white">
           Activity
         </h2>
       </div>
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+      <div className="calym-scrollbar mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
         {activity.map((item, index) => (
           <div
-            className="rounded-xl border p-4 calym-card text-base leading-7 text-slate-600 dark:text-slate-300"
+            className="relative border-l border-slate-200 pb-4 pl-4 text-sm leading-6 text-slate-600 last:pb-0 dark:border-white/10 dark:text-slate-300"
             key={item.id}
           >
-            <div className="mb-2 flex items-center gap-2">
-              <span
-                className={`size-2 rounded-full ${
-                  index === 0 ? "bg-cyan-500" : "bg-indigo-300"
-                }`}
-              />
-            </div>
-            {item.message}
+            <span
+              className={`absolute -left-[5px] top-1 size-2.5 rounded-full ring-4 ring-slate-50 dark:ring-[#0b1020] ${
+                index === 0 ? "bg-cyan-500" : "bg-indigo-300"
+              }`}
+            />
+            <p className="line-clamp-3">{item.message}</p>
           </div>
         ))}
       </div>
@@ -1002,12 +1198,14 @@ function InboxTab({
   onPromptSelect,
   onQueryChange,
   query,
+  user,
 }: {
   emails: DashboardEmail[];
   isLoading: boolean;
   onPromptSelect: (prompt: string) => void;
   onQueryChange: (value: string) => void;
   query: string;
+  user: DashboardShellProps["user"];
 }) {
   const [mailView, setMailView] = useState<
     "draft_send" | "needs_action" | "received"
@@ -1022,6 +1220,8 @@ function InboxTab({
     displayEmails.find((email) => email.id === selectedEmailId) ??
     displayEmails[0] ??
     null;
+  const userDisplayName = user.name.trim() || user.email;
+  const isDraftView = mailView === "draft_send";
   const mailTabs = [
     {
       count: emails.length,
@@ -1067,77 +1267,57 @@ function InboxTab({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border p-6 backdrop-blur calym-surface">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl border border-cyan-100 bg-cyan-50 p-3 text-cyan-700 shadow-lg shadow-cyan-500/10 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-200">
-            <Inbox className="size-6" />
-          </div>
-          <div>
-            <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">
-              Mail command center
-            </h2>
-            <p className="mt-1 text-base text-slate-600 dark:text-slate-300">
-              Track received replies, detect risky responses, and draft safe sends.
-            </p>
-          </div>
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border p-5 backdrop-blur calym-surface">
+      <div className="flex shrink-0 flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="calym-card calym-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-2xl border p-1.5">
+          {mailTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = mailView === tab.id;
+
+            return (
+              <button
+                aria-label={`${tab.label}: ${tab.helper}`}
+                className={`flex min-w-fit flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold transition ${
+                  isActive
+                    ? "calym-active-tab"
+                    : "text-slate-600 hover:bg-slate-100/70 dark:text-slate-300 dark:hover:bg-white/6"
+                }`}
+                key={tab.id}
+                onClick={() => setMailView(tab.id)}
+                type="button"
+              >
+                <Icon className="size-4 shrink-0" />
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-sm ${
+                    isActive
+                      ? "bg-slate-950/8 text-current dark:bg-white/10"
+                      : "bg-slate-200 text-slate-700 dark:bg-white/10 dark:text-slate-200"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
         <input
-          className="h-13 rounded-2xl border border-indigo-100 bg-slate-50/90 px-5 text-base text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 xl:w-[24rem] dark:border-white/10 dark:bg-white/7 dark:text-slate-100 dark:focus:ring-indigo-400/20"
+          className="h-12 rounded-2xl border border-indigo-100 bg-slate-50/90 px-5 text-base text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 xl:w-[22rem] dark:border-white/10 dark:bg-white/7 dark:text-slate-100 dark:focus:ring-indigo-400/20"
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search sender, subject, category..."
           value={query}
         />
       </div>
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-3">
-        {mailTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = mailView === tab.id;
-
-          return (
-            <button
-              className={`rounded-2xl border p-4 text-left transition ${
-                isActive
-                  ? "border-cyan-300 bg-cyan-50 text-cyan-950 shadow-lg shadow-cyan-500/10 dark:border-cyan-300/30 dark:bg-cyan-400/12 dark:text-cyan-50"
-                  : "calym-card hover:border-cyan-200 dark:hover:border-cyan-300/24"
-              }`}
-              key={tab.id}
-              onClick={() => setMailView(tab.id)}
-              type="button"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-3 text-lg font-semibold">
-                  <span
-                    className={`flex size-11 items-center justify-center rounded-xl ${
-                      isActive
-                        ? "bg-cyan-500 text-white"
-                        : "bg-slate-100 text-slate-700 dark:bg-white/8 dark:text-slate-200"
-                    }`}
-                  >
-                    <Icon className="size-5" />
-                  </span>
-                  {tab.label}
-                </span>
-                <span className="rounded-full border px-3 py-1 text-base font-semibold">
-                  {tab.count}
-                </span>
-              </div>
-              <p className="mt-3 text-base leading-6 opacity-75">{tab.helper}</p>
-            </button>
-          );
-        })}
-      </div>
-
       {isLoading ? (
-        <div className="mt-5 flex items-center gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 p-5 text-base text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-100">
+        <div className="mt-4 flex shrink-0 items-center gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 p-4 text-base text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-100">
           <Loader2 className="size-5 animate-spin" />
           Loading your Gmail messages...
         </div>
       ) : null}
 
-      <div className="mt-5 grid min-h-0 flex-1 gap-5 overflow-hidden xl:grid-cols-[minmax(22rem,0.92fr)_1.18fr]">
-        <div className="calym-card min-h-0 overflow-y-auto rounded-2xl border p-3">
+      <div className="mt-3 grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(18rem,0.68fr)_1.32fr]">
+        <div className="calym-card calym-scrollbar min-h-0 overflow-y-auto rounded-2xl border p-2.5">
           {displayEmails.length === 0 ? (
             <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center dark:border-white/10">
               <CheckCircle2 className="size-10 text-cyan-500" />
@@ -1149,13 +1329,25 @@ function InboxTab({
             </div>
           ) : null}
 
-          <div className="grid gap-3">
+          <div className="grid gap-2.5">
             {displayEmails.map((email) => {
               const isSelected = selectedEmail?.id === email.id;
+              const isOutgoing = isDraftView || email.direction === "outgoing";
+              const participantLabel = isOutgoing
+                ? sendToLabel(email)
+                : contactDisplayName(receivedFromLabel(email));
+              const participantPrefix = isDraftView
+                ? "Send to"
+                : email.direction === "outgoing"
+                  ? "Sent to"
+                  : "From";
+              const secondaryLabel = isOutgoing
+                ? `From ${userDisplayName}`
+                : formatDate(email.date);
 
               return (
                 <button
-                  className={`rounded-2xl border p-4 text-left transition ${
+                  className={`rounded-xl border p-3 text-left transition ${
                     isSelected
                       ? "border-cyan-300 bg-cyan-50/80 shadow-lg shadow-cyan-500/10 dark:border-cyan-300/30 dark:bg-cyan-400/12"
                       : "border-transparent bg-slate-50/70 hover:border-slate-200 dark:bg-white/5 dark:hover:border-white/12"
@@ -1166,19 +1358,29 @@ function InboxTab({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-base font-semibold text-indigo-700 dark:text-indigo-200">
-                          {email.from}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 text-sm font-semibold text-white">
+                          {participantLabel.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-wide calym-muted">
+                            {participantPrefix}
+                          </p>
+                          <p className="truncate text-base font-semibold text-indigo-700 dark:text-indigo-200">
+                            {participantLabel}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <p className="line-clamp-1 min-w-0 flex-1 text-base font-semibold text-slate-950 dark:text-white">
+                          {email.subject}
                         </p>
                         <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${emailCategoryClass(email.category)}`}
+                          className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${emailCategoryClass(email.category)}`}
                         >
                           {email.category}
                         </span>
                       </div>
-                      <h3 className="mt-2 line-clamp-2 text-lg font-semibold text-slate-950 dark:text-white">
-                        {email.subject}
-                      </h3>
                     </div>
                     <span
                       className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${priorityClass(email.priority)}`}
@@ -1186,11 +1388,8 @@ function InboxTab({
                       {email.priority}
                     </span>
                   </div>
-                  <p className="mt-3 line-clamp-2 text-base leading-7 text-slate-600 dark:text-slate-300">
-                    {email.reason}
-                  </p>
-                  <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-                    {formatDate(email.date)}
+                  <p className="mt-2 truncate text-sm font-medium text-slate-500 dark:text-slate-400">
+                    {secondaryLabel}
                   </p>
                 </button>
               );
@@ -1198,21 +1397,21 @@ function InboxTab({
           </div>
         </div>
 
-        <div className="calym-card min-h-0 overflow-y-auto rounded-2xl border p-5">
+        <div className="calym-card calym-scrollbar min-h-0 overflow-y-auto rounded-2xl border p-4">
           {selectedEmail ? (
             <div className="flex min-h-full flex-col">
-              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div className="flex flex-col justify-between gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-start dark:border-white/10">
                 <div>
                   <p className="text-base font-semibold text-cyan-700 dark:text-cyan-200">
-                    {mailView === "draft_send"
-                      ? "Draft and send workspace"
-                      : "Received reply detail"}
+                    Conversation preview
                   </p>
-                  <h3 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                  <h3 className="mt-1 line-clamp-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
                     {selectedEmail.subject}
                   </h3>
-                  <p className="mt-2 text-lg font-medium text-slate-600 dark:text-slate-300">
-                    From {selectedEmail.from}
+                  <p className="mt-1 text-base font-medium text-slate-600 dark:text-slate-300">
+                    {isDraftView || selectedEmail.direction === "outgoing"
+                      ? `Sending to ${sendToLabel(selectedEmail)} from ${userDisplayName}`
+                      : `${contactDisplayName(receivedFromLabel(selectedEmail))} replied to your email`}
                   </p>
                 </div>
                 <span
@@ -1222,83 +1421,103 @@ function InboxTab({
                 </span>
               </div>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_16rem]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 dark:border-white/10 dark:bg-white/6">
-                  <p className="text-base font-semibold text-slate-500 dark:text-slate-400">
-                    Reply body
-                  </p>
-                  <p className="mt-3 text-lg leading-9 text-slate-700 dark:text-slate-200">
-                    {selectedEmail.reason}
+              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-black/10">
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50/90 p-4 shadow-sm dark:border-indigo-300/20 dark:bg-indigo-400/10">
+                  <div className="flex flex-col gap-3 border-b border-indigo-200/70 pb-3 md:flex-row md:items-start md:justify-between dark:border-indigo-300/15">
+                    <div className="flex items-start gap-3">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 text-base font-semibold text-white">
+                        {contactInitial(userDisplayName)}
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+                          Meeting request sent by CalyM AI
+                        </p>
+                        <p className="mt-1 text-base font-semibold text-slate-950 dark:text-white">
+                          From {userDisplayName}
+                        </p>
+                        <p className="text-base text-slate-600 dark:text-slate-300">
+                          To{" "}
+                          {selectedEmail.direction === "outgoing"
+                            ? sendToLabel(selectedEmail)
+                            : requestRecipientLabel(selectedEmail)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-indigo-200 bg-white/70 px-3 py-2 text-sm font-medium text-indigo-800 dark:border-indigo-300/15 dark:bg-white/8 dark:text-indigo-100">
+                      Request email
+                    </div>
+                  </div>
+                  <p className="mt-3 text-base leading-7 text-slate-800 dark:text-slate-100">
+                    {requestEmailBody(selectedEmail)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-cyan-200 bg-cyan-50/80 p-5 dark:border-cyan-300/20 dark:bg-cyan-400/10">
-                  <Sparkles className="size-6 text-cyan-700 dark:text-cyan-200" />
-                  <p className="mt-4 text-lg font-semibold text-cyan-950 dark:text-cyan-50">
-                    AI read
-                  </p>
-                  <p className="mt-2 text-base leading-7 text-cyan-800 dark:text-cyan-100">
+
+                {selectedEmail.direction === "incoming" ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+                    <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 md:flex-row md:items-start md:justify-between dark:border-white/10">
+                      <div className="flex items-start gap-3">
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-base font-semibold text-slate-700 dark:bg-white/12 dark:text-slate-100">
+                          {contactInitial(receivedFromLabel(selectedEmail))}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
+                            Reply received
+                          </p>
+                          <p className="mt-1 text-base font-semibold text-slate-950 dark:text-white">
+                            From {contactDisplayName(receivedFromLabel(selectedEmail))}
+                          </p>
+                          <p className="text-base text-slate-600 dark:text-slate-300">
+                            To {userDisplayName}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 dark:border-white/10 dark:bg-white/6 dark:text-slate-300">
+                        {formatDate(selectedEmail.date)}
+                      </div>
+                    </div>
+                    <p className="mt-3 text-base leading-7">
+                      {selectedEmail.reason}
+                    </p>
+                  </div>
+                ) : null}
+
+                {selectedEmail.category === "Reschedule" ||
+                selectedEmail.category === "Negative reply" ? (
+                  <div className="mx-auto w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-base font-medium text-amber-800 dark:border-amber-300/20 dark:bg-amber-400/10 dark:text-amber-100">
+                    {selectedEmail.category === "Reschedule"
+                      ? "This reply may need a new time."
+                      : "This reply needs a careful response."}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/80 p-3.5 dark:border-indigo-300/20 dark:bg-indigo-400/10">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <p className="line-clamp-2 text-base leading-7 text-indigo-950 dark:text-indigo-50">
                     {replyInsight(selectedEmail)}
                   </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/6">
-                  <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
-                    Reply status
-                  </p>
-                  <p className="mt-2 text-xl font-semibold">
-                    {selectedEmail.category === "Reschedule"
-                      ? "Reschedule"
-                      : selectedEmail.category === "Negative reply"
-                        ? "Careful reply"
-                        : "Ready to handle"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/6">
-                  <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
-                    Confidence
-                  </p>
-                  <p className="mt-2 text-xl font-semibold">
-                    {selectedEmail.priority === "High" ? "High priority" : "Normal"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/6">
-                  <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
-                    Received
-                  </p>
-                  <p className="mt-2 text-xl font-semibold">
-                    {formatDate(selectedEmail.date)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-auto pt-5">
-                <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-5 dark:border-indigo-300/20 dark:bg-indigo-400/10">
-                  <p className="text-base font-semibold text-indigo-800 dark:text-indigo-100">
-                    Suggested command
-                  </p>
-                  <p className="mt-2 text-lg leading-8 text-indigo-950 dark:text-indigo-50">
-                    {selectedEmail.prompt}
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="flex shrink-0 flex-wrap gap-2">
                     <Button
-                      className="calym-primary-action h-12 px-5 text-base"
+                      className="calym-primary-action h-11 px-4 text-base"
                       onClick={() => onPromptSelect(selectedEmail.prompt)}
                     >
                       <Sparkles className="mr-2 size-4" />
-                      Draft smart reply
+                      Draft reply
                     </Button>
                     <Button
-                      className="calym-quiet-button h-12 px-5 text-base"
+                      className="calym-quiet-button h-11 px-4 text-base"
                       onClick={() =>
                         onPromptSelect(
-                          `Summarize this reply from ${selectedEmail.from}: ${selectedEmail.subject}`,
+                          `Summarize this message with ${
+                            selectedEmail.direction === "outgoing"
+                              ? sendToLabel(selectedEmail)
+                              : contactDisplayName(receivedFromLabel(selectedEmail))
+                          }: ${selectedEmail.subject}`,
                         )
                       }
                       variant="outline"
                     >
-                      Summarize first
+                      Summarize
                     </Button>
                   </div>
                 </div>
@@ -1319,39 +1538,59 @@ function AgendaTab({
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-2xl border p-6 backdrop-blur calym-surface">
-      <div className="flex items-center gap-3">
-        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-700">
-          <CalendarDays className="size-6" />
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border p-5 backdrop-blur calym-surface">
+      <div className="grid shrink-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="calym-card flex min-w-0 items-center gap-4 rounded-2xl border p-4">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-100">
+            <CalendarDays className="size-6" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
+              Calendar agenda
+            </p>
+            <h2 className="truncate text-2xl font-semibold text-slate-950 dark:text-white">
+              {events.length} upcoming event{events.length === 1 ? "" : "s"}
+            </h2>
+          </div>
         </div>
-        <div>
-          <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">
-            Real Calendar agenda
-          </h2>
-          <p className="mt-1 text-base text-slate-600 dark:text-slate-300">
-            Upcoming events from your primary Google Calendar.
-          </p>
+        <div className="calym-card flex items-center gap-3 rounded-2xl border px-4 py-3 text-base font-medium calym-muted">
+          <span className="size-2 rounded-full bg-cyan-400" />
+          Synced from Google Calendar
         </div>
       </div>
-      <div className="mt-5 grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-3">
+
+      <div className="calym-scrollbar mt-4 min-h-0 flex-1 overflow-y-auto rounded-2xl border p-3 calym-card">
         {events.map((item) => (
           <div
-            className="rounded-xl border border-amber-100 calym-card p-5 text-left"
+            className="group grid gap-4 rounded-2xl border border-transparent p-4 transition-colors hover:border-cyan-200/70 hover:bg-cyan-50/50 lg:grid-cols-[7rem_1fr_auto] lg:items-center dark:hover:border-cyan-300/16 dark:hover:bg-cyan-400/6"
             key={item.id}
           >
-            <div className="flex items-center gap-2 text-base font-medium text-amber-700">
-              <Clock3 className="size-5" />
-              {item.time}
+            <div className="flex items-center gap-3 lg:block">
+              <div className="flex size-12 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-cyan-700 dark:border-white/10 dark:bg-white/6 dark:text-cyan-100">
+                <Clock3 className="size-5" />
+              </div>
+              <div className="lg:mt-2">
+                <p className="text-lg font-semibold text-slate-950 dark:text-white">
+                  {item.time}
+                </p>
+                <p className="text-sm font-medium calym-muted">
+                  {formatDate(item.start)}
+                </p>
+              </div>
             </div>
-            <h3 className="mt-3 text-xl font-semibold text-slate-950 dark:text-white">
-              {item.title}
-            </h3>
-            <p className="mt-2 text-base leading-7 text-slate-600 dark:text-slate-300">
-              {item.context}
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
+
+            <div className="min-w-0">
+              <h3 className="line-clamp-1 text-2xl font-semibold text-slate-950 dark:text-white">
+                {item.title}
+              </h3>
+              <p className="mt-2 line-clamp-2 text-base leading-7 calym-muted">
+                {item.context}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 lg:justify-end">
               <Button
-                className="h-11 border-amber-200 bg-slate-50 text-base text-amber-900 dark:bg-zinc-900"
+                className="calym-quiet-button h-11 px-4 text-base"
                 onClick={() =>
                   onPromptSelect(`Prepare me for ${item.title} at ${item.time}.`)
                 }
@@ -1360,7 +1599,10 @@ function AgendaTab({
                 Prepare
               </Button>
               {item.htmlLink ? (
-                <Button asChild className="h-11 text-base" variant="outline">
+                <Button
+                  asChild
+                  className="calym-primary-action h-11 px-4 text-base"
+                >
                   <a href={item.htmlLink} rel="noreferrer" target="_blank">
                     <ExternalLink className="mr-2 size-4" />
                     Open
@@ -1389,27 +1631,41 @@ function AgentTab({
   preparedActions: PreparedAction[];
 }) {
   return (
-    <div className="grid h-full min-h-0 gap-5 lg:grid-cols-[1fr_0.8fr]">
-      <section className="flex min-h-0 flex-col rounded-2xl border p-6 backdrop-blur calym-surface">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-violet-700">
-            <Bot className="size-6" />
+    <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[1fr_24rem]">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-3xl border p-5 backdrop-blur calym-surface">
+        <div className="grid shrink-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="calym-card flex min-w-0 items-center gap-4 rounded-2xl border p-4">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100">
+              <Bot className="size-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
+                Action queue
+              </p>
+              <h2 className="truncate text-2xl font-semibold text-slate-950 dark:text-white">
+                {preparedActions.length
+                  ? `${preparedActions.length} ready for approval`
+                  : "No actions waiting"}
+              </h2>
+            </div>
           </div>
-          <div>
-            <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">
-              Prepared real actions
-            </h2>
-            <p className="mt-1 text-base text-slate-600 dark:text-slate-300">
-              Confirm each item before CalyM writes to Gmail or Calendar.
-            </p>
+          <div className="calym-card flex items-center gap-3 rounded-2xl border px-4 py-3 text-base font-medium calym-muted">
+            <CheckCircle2 className="size-5 text-cyan-500" />
+            Review before write
           </div>
         </div>
 
-        <div className="mt-5 grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
+        <div className="calym-scrollbar mt-4 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto rounded-2xl border p-3 calym-card">
           {preparedActions.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-violet-200 bg-violet-50/60 p-6 text-lg leading-8 text-violet-800">
-              No prepared actions yet. Run a prompt from the Overview tab and
-              supported Gmail or Calendar actions will appear here.
+            <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center dark:border-white/10">
+              <Sparkles className="size-10 text-cyan-500" />
+              <h3 className="mt-4 text-2xl font-semibold text-slate-950 dark:text-white">
+                Prompt actions appear here
+              </h3>
+              <p className="mt-2 max-w-md text-base leading-7 calym-muted">
+                Run a workflow prompt from Overview, then approve each Gmail or
+                Calendar action before CalyM executes it.
+              </p>
             </div>
           ) : null}
 
@@ -1426,28 +1682,42 @@ function AgentTab({
 
             return (
               <div
-                className="rounded-xl border border-violet-100 calym-card p-5"
+                className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm dark:border-white/10 dark:bg-white/5"
                 key={action.id}
               >
                 <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-2xl font-semibold">{action.title}</h3>
+                      <span className="flex size-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100">
+                        {action.type === "calendar_event" ? (
+                          <CalendarDays className="size-5" />
+                        ) : (
+                          <Mail className="size-5" />
+                        )}
+                      </span>
+                      <h3 className="text-2xl font-semibold text-slate-950 dark:text-white">
+                        {action.title}
+                      </h3>
                       <span className={`rounded-full border px-3 py-1 text-sm font-medium ${categoryClass(action.category)}`}>
                         {categoryLabel}
                       </span>
                       {action.risk === "high" ? (
-                        <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-700">
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 dark:border-amber-300/20 dark:bg-amber-400/10 dark:text-amber-100">
                           Needs confirmation
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-3 text-lg leading-8 text-muted-foreground">
+                    <p className="mt-3 text-base leading-7 calym-muted">
                       {action.description}
                     </p>
+                    {action.recipientEmail ? (
+                      <p className="mt-2 text-base font-medium text-slate-700 dark:text-slate-200">
+                        To {action.recipientEmail}
+                      </p>
+                    ) : null}
                   </div>
                   <Button
-                    className={`h-12 px-5 text-base ${
+                    className={`h-12 shrink-0 px-5 text-base ${
                       action.risk === "high" ? "calym-primary-action" : ""
                     }`}
                     disabled={isExecuting}
@@ -1468,34 +1738,45 @@ function AgentTab({
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-col rounded-2xl border p-6 backdrop-blur calym-surface">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-indigo-700">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-3xl border p-5 backdrop-blur calym-surface">
+        <div className="calym-card flex items-center gap-4 rounded-2xl border p-4">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-100">
             <Zap className="size-6" />
           </div>
-          <div>
-            <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">Fast actions</h2>
-            <p className="mt-1 text-base text-slate-600 dark:text-slate-300">
-              Click one to place a real workflow prompt in the command bar.
+          <div className="min-w-0">
+            <p className="text-sm font-semibold uppercase tracking-wide calym-muted">
+              Shortcuts
             </p>
+            <h2 className="truncate text-2xl font-semibold text-slate-950 dark:text-white">
+              Fast actions
+            </h2>
           </div>
         </div>
-        <div className="mt-5 grid min-h-0 gap-3 overflow-y-auto pr-1">
+        <div className="calym-scrollbar mt-4 grid min-h-0 content-start gap-3 overflow-y-auto rounded-2xl border p-3 calym-card">
           {fastActions.map((action) => {
             const Icon = action.icon;
 
             return (
               <button
-                className="calym-quiet-button flex items-center justify-between rounded-xl border px-5 py-4 text-left shadow-sm transition-colors"
+                className="group flex items-center justify-between gap-3 rounded-2xl border border-transparent bg-slate-50/70 px-4 py-4 text-left transition-colors hover:border-cyan-200/70 hover:bg-cyan-50/50 dark:bg-white/5 dark:hover:border-cyan-300/16 dark:hover:bg-cyan-400/6"
                 key={action.key}
                 onClick={() => onPromptSelect(action.prompt)}
                 type="button"
               >
-                <span className="flex items-center gap-3 text-lg font-medium text-slate-800 dark:text-slate-100">
-                  <Icon className="size-5 text-indigo-700" />
-                  {action.label}
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100">
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-lg font-semibold text-slate-900 dark:text-white">
+                      {action.label}
+                    </span>
+                    <span className="mt-0.5 block line-clamp-1 text-sm calym-muted">
+                      {action.prompt}
+                    </span>
+                  </span>
                 </span>
-                <kbd className="rounded-md border border-indigo-100 bg-indigo-50 px-3 py-1 text-base font-semibold text-indigo-800">
+                <kbd className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1 text-base font-semibold text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
                   {action.key}
                 </kbd>
               </button>

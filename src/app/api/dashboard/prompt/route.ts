@@ -15,7 +15,9 @@ type PreparedAction = {
   description: string;
   id: string;
   payload: Record<string, unknown>;
+  recipientEmail?: string;
   risk: "low" | "high";
+  sourceCommand?: string;
   title: string;
   type: ActionType;
 };
@@ -270,7 +272,10 @@ function prepareActions(command: string, timeZone: string) {
     normalizedCommand.includes("reply") ||
     normalizedCommand.includes("reschedule") ||
     normalizedCommand.includes("not interested") ||
-    normalizedCommand.includes("send");
+    (normalizedCommand.includes("send") &&
+      (!wantsCalendar ||
+        normalizedCommand.includes("saying") ||
+        normalizedCommand.includes("message")));
 
   if (wantsCalendar && replyCategory !== "reschedule" && replyCategory !== "decline") {
     const { end, start } = buildEventWindow(command);
@@ -291,7 +296,9 @@ function prepareActions(command: string, timeZone: string) {
         },
         sendUpdates: "all",
       },
+      recipientEmail: recipient,
       risk: "high",
+      sourceCommand: command,
       title: "Calendar invite",
       type: "calendar_event",
     });
@@ -318,7 +325,9 @@ function prepareActions(command: string, timeZone: string) {
       payload: shouldSend
         ? { raw, userId: "me" }
         : { draft: { message: { raw } }, userId: "me" },
+      recipientEmail: recipient,
       risk: shouldSend ? "high" : "low",
+      sourceCommand: command,
       title: shouldSend ? "Send email" : "Gmail draft",
       type: shouldSend ? "email_send" : "email_draft",
     });

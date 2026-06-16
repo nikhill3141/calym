@@ -21,8 +21,8 @@ const integrations = [
     name: "Gmail",
     description: "Authorize Corsair to search, draft, and send email.",
     icon: Mail,
-    connectedClass: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    pendingClass: "border-border bg-card",
+    connectedClass: "border-emerald-200 bg-emerald-50/80 text-emerald-950",
+    pendingClass: "calym-card",
     badgeClass: "bg-emerald-100 text-emerald-700",
   },
   {
@@ -30,8 +30,8 @@ const integrations = [
     name: "Google Calendar",
     description: "Authorize Corsair to create invites and manage events.",
     icon: CalendarDays,
-    connectedClass: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    pendingClass: "border-border bg-card",
+    connectedClass: "border-emerald-200 bg-emerald-50/80 text-emerald-950",
+    pendingClass: "calym-card",
     badgeClass: "bg-emerald-100 text-emerald-700",
   },
 ] as const;
@@ -169,21 +169,21 @@ export default async function IntegrationsPage({
   const params = await searchParams;
 
   return (
-    <main className="min-h-screen bg-background px-6 py-12 text-foreground">
-      <section className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-6xl flex-col justify-center gap-10">
+    <main className="calym-dashboard min-h-screen px-6 py-10">
+      <section className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl flex-col justify-center gap-8">
         <div className="max-w-3xl">
-          <p className="text-lg font-medium text-muted-foreground">
+          <p className="text-lg font-medium calym-muted">
             Connect your workspace
           </p>
           <h1 className="mt-4 text-5xl font-semibold tracking-tight md:text-6xl">
             Link Gmail and Calendar
           </h1>
-          <p className="mt-6 text-xl leading-9 text-muted-foreground">
+          <p className="mt-6 text-xl leading-9 calym-muted">
             CalyM needs both integrations before opening the dashboard. Each
             card creates a secure Corsair OAuth connection for your account.
           </p>
           {params.error ? (
-            <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-base text-destructive">
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-base text-rose-700">
               {params.error}
             </div>
           ) : null}
@@ -196,7 +196,7 @@ export default async function IntegrationsPage({
 
             return (
               <div
-                className={`rounded-lg border p-8 shadow-sm transition-colors md:p-10 ${
+                className={`rounded-3xl border p-8 shadow-sm transition-colors md:p-10 ${
                   isConnected
                     ? integration.connectedClass
                     : integration.pendingClass
@@ -206,14 +206,14 @@ export default async function IntegrationsPage({
                 <div className="flex flex-col gap-6">
                   <div className="flex items-start justify-between gap-5">
                     <div className="flex items-center gap-5">
-                      <div className="rounded-lg border bg-background/70 p-4">
+                      <div className="rounded-2xl border bg-slate-50/80 p-4 dark:bg-white/8">
                         <Icon className="size-9" />
                       </div>
                       <div>
                         <h2 className="text-3xl font-semibold">
                           {integration.name}
                         </h2>
-                        <p className="mt-3 text-lg leading-8 text-muted-foreground">
+                        <p className="mt-3 text-lg leading-8 calym-muted">
                           {integration.description}
                         </p>
                       </div>
@@ -227,7 +227,7 @@ export default async function IntegrationsPage({
                         Connected
                       </span>
                     ) : (
-                      <span className="rounded-full bg-muted px-4 py-2 text-base font-medium text-muted-foreground">
+                      <span className="rounded-full border px-4 py-2 text-base font-medium calym-muted">
                         Pending
                       </span>
                     )}
@@ -240,7 +240,9 @@ export default async function IntegrationsPage({
                       value={integration.provider}
                     />
                     <Button
-                      className="h-14 w-full text-lg"
+                      className={`h-14 w-full text-lg ${
+                        isConnected ? "" : "calym-primary-action"
+                      }`}
                       disabled={isConnected}
                     >
                       {isConnected
