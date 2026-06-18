@@ -36,6 +36,8 @@ const navLinks = [
   { label: "Use Cases", href: "#use-cases" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
 ];
 
 const promptSteps = [
