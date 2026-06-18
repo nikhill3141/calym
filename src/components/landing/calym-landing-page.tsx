@@ -1041,10 +1041,16 @@ function Footer() {
             follow-ups, reschedule detection, and human-approved automation.
           </p>
         </div>
-        <div className="grid gap-3 text-base font-medium text-slate-600 sm:grid-cols-4 dark:text-slate-300">
-          {["Product", "Features", "Privacy", "Contact"].map((link) => (
-            <a href="#" key={link}>
-              {link}
+        <div className="grid gap-3 text-base font-medium text-slate-600 sm:grid-cols-5 dark:text-slate-300">
+          {[
+            { href: "#", label: "Product" },
+            { href: "#features", label: "Features" },
+            { href: "/privacy", label: "Privacy" },
+            { href: "/terms", label: "Terms" },
+            { href: "mailto:self.improvement4131@gmail.com", label: "Contact" },
+          ].map((link) => (
+            <a href={link.href} key={link.label}>
+              {link.label}
             </a>
           ))}
         </div>
