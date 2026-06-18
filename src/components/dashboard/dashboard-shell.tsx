@@ -234,6 +234,13 @@ const fallbackAgenda: DashboardEvent[] = [
 
 const fastActions = [
   {
+    action: "prompt_focus",
+    description: "Focus the CalyM prompt composer",
+    key: "Tab",
+    icon: Command,
+    label: "Prompt composer",
+  },
+  {
     action: "compose",
     description: "Open the Gmail compose popup",
     key: "C",
@@ -690,6 +697,7 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
   const toastIdRef = useRef(0);
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [composeRequestId, setComposeRequestId] = useState<number | null>(null);
+  const [promptFocusRequestId, setPromptFocusRequestId] = useState<number | null>(null);
   const [searchFocusRequestId, setSearchFocusRequestId] = useState<number | null>(null);
   const [command, setCommand] = useState(
     "Send a calendar invite to demo@example.com at 9 AM next Thursday. Send them an email too saying I look forward to our meeting.",
@@ -944,6 +952,12 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
     if (action.action === "search") {
       openInbox("received");
       setSearchFocusRequestId(Date.now());
+      return;
+    }
+
+    if (action.action === "prompt_focus") {
+      setActiveTab("overview");
+      setPromptFocusRequestId(Date.now());
       return;
     }
 
@@ -1289,9 +1303,11 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
                 }}
                 onOpenAgenda={() => setActiveTab("agenda")}
                 onOpenInbox={openInbox}
+                onPromptFocusHandled={() => setPromptFocusRequestId(null)}
                 onRunCommand={runCommand}
                 promptAlert={promptAlert}
                 onPromptAlertDismiss={() => setPromptAlert(null)}
+                promptFocusRequestId={promptFocusRequestId}
               />
             ) : null}
 
@@ -1393,8 +1409,10 @@ function OverviewTab({
   onOpenAgenda,
   onOpenInbox,
   onPromptAlertDismiss,
+  onPromptFocusHandled,
   onRunCommand,
   promptAlert,
+  promptFocusRequestId,
 }: {
   command: string;
   insights: DashboardInsights;
@@ -1404,9 +1422,12 @@ function OverviewTab({
   onOpenAgenda: () => void;
   onOpenInbox: (view: InboxView) => void;
   onPromptAlertDismiss: () => void;
+  onPromptFocusHandled: () => void;
   onRunCommand: () => void;
   promptAlert: PromptAlert | null;
+  promptFocusRequestId: number | null;
 }) {
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const focusCards = [
     {
       action: () => onOpenInbox("needs_action"),
@@ -1437,6 +1458,14 @@ function OverviewTab({
       value: insights.priorityMeetings.length,
     },
   ];
+
+  useEffect(() => {
+    if (promptFocusRequestId !== null) {
+      promptInputRef.current?.focus();
+      promptInputRef.current?.select();
+      onPromptFocusHandled();
+    }
+  }, [onPromptFocusHandled, promptFocusRequestId]);
 
   return (
     <div className="grid h-full min-h-0 gap-3 xl:grid-rows-[auto_minmax(0,1fr)_auto]">
@@ -1558,16 +1587,7 @@ function OverviewTab({
             </div>
           </div>
 
-          <div className="calym-card flex min-h-0 flex-col overflow-hidden rounded-2xl border p-4">
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100">
-                <Zap className="size-4" />
-              </span>
-              <p className="text-base font-semibold text-slate-950 dark:text-white">
-                System pulse
-              </p>
-            </div>
-            <div className="calym-scrollbar mt-3 grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 content-center gap-2">
               {metrics.map((metric) => {
                 const MetricIcon =
                   metric.label === "Inbox threads"
@@ -1580,7 +1600,7 @@ function OverviewTab({
 
                 return (
                   <div
-                    className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-white/10 dark:bg-white/5"
+                    className="flex min-w-0 items-center gap-2 rounded-xl bg-slate-50/70 p-2.5 ring-1 ring-slate-200 dark:bg-white/5 dark:ring-white/10"
                     key={metric.label}
                   >
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-white text-indigo-700 dark:border-white/10 dark:bg-white/8 dark:text-indigo-200">
@@ -1597,7 +1617,6 @@ function OverviewTab({
                   </div>
                 );
               })}
-            </div>
           </div>
         </div>
       </section>
@@ -1615,6 +1634,12 @@ function OverviewTab({
               <h2 className="mt-0.5 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
                 Ask CalyM
               </h2>
+              <div className="mt-1 flex items-center gap-2 text-xs font-medium calym-muted">
+                <kbd className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-100">
+                  Tab
+                </kbd>
+                focus prompt
+              </div>
             </div>
           </div>
 
@@ -1625,6 +1650,7 @@ function OverviewTab({
                   className="calym-focus min-h-16 w-full resize-none rounded-xl border p-3 text-base leading-6 text-slate-800 shadow-inner outline-none transition-colors placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
                   onChange={(event) => onCommandChange(event.target.value)}
                   placeholder="Ask CalyM to schedule a meeting, reply to an email, reschedule, or summarize what needs attention..."
+                  ref={promptInputRef}
                   value={command}
                 />
               </div>
