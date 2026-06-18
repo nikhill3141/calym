@@ -22,6 +22,7 @@ import {
   Sun,
   Zap,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -875,19 +876,26 @@ export function DashboardShell({ connections, user }: DashboardShellProps) {
       <ToastViewport toasts={toasts} />
       <div className="mx-auto flex h-screen max-w-[1680px] overflow-hidden">
         <aside className="calym-surface hidden h-screen w-[22rem] shrink-0 border-r px-5 py-5 backdrop-blur-xl xl:w-96 lg:flex lg:flex-col">
-          <div className="flex items-center gap-4">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-lg font-semibold text-white shadow-lg shadow-indigo-500/25">
-              C
-            </div>
-            <div>
-              <p className="text-xl font-semibold dark:text-white">CalyM</p>
-              <p className="text-sm text-indigo-700 dark:text-indigo-200">
-                Mail + Calendar AI
-              </p>
-            </div>
+          <div className="flex h-14 items-center px-4">
+            <Image
+              alt="CalyM Automation"
+              className="h-12 w-auto object-contain dark:hidden"
+              height={174}
+              priority
+              src="/calym-logo-light.png"
+              width={389}
+            />
+            <Image
+              alt="CalyM Automation"
+              className="hidden h-12 w-auto object-contain dark:block"
+              height={174}
+              priority
+              src="/calym-logo-dark.png"
+              width={389}
+            />
           </div>
 
-          <nav className="mt-5 flex flex-col gap-1.5">
+          <nav className="mt-4 flex flex-col gap-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.tab;

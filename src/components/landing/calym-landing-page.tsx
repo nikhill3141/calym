@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { motion, useReducedMotion, type TargetAndTransition } from "framer-motion";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
@@ -223,11 +224,23 @@ function Navbar({
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-slate-50/72 px-4 backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/58">
       <nav className="mx-auto flex h-20 max-w-7xl items-center justify-between">
-        <a className="flex items-center gap-3" href="#">
-          <span className="flex size-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 via-violet-600 to-cyan-500 text-slate-50 shadow-lg shadow-blue-500/20">
-            <Sparkles className="size-5" />
-          </span>
-          <span className="text-2xl font-semibold tracking-tight">CalyM</span>
+        <a className="flex h-16 items-center" href="#">
+          <Image
+            alt="CalyM Automation"
+            className="h-14 w-auto object-contain dark:hidden"
+            height={174}
+            priority
+            src="/calym-logo-light.png"
+            width={389}
+          />
+          <Image
+            alt="CalyM Automation"
+            className="hidden h-14 w-auto object-contain dark:block"
+            height={174}
+            priority
+            src="/calym-logo-dark.png"
+            width={389}
+          />
         </a>
 
         <div className="hidden items-center gap-8 lg:flex">
@@ -876,11 +889,21 @@ function Footer() {
     <footer className="border-t border-slate-200/70 bg-slate-50/60 px-4 py-10 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/40">
       <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1fr_auto]">
         <div>
-          <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 via-violet-600 to-cyan-500 text-white">
-              <Sparkles className="size-5" />
-            </span>
-            <span className="text-2xl font-semibold">CalyM</span>
+          <div className="flex h-14 items-center">
+            <Image
+              alt="CalyM Automation"
+              className="h-12 w-auto object-contain dark:hidden"
+              height={174}
+              src="/calym-logo-light.png"
+              width={389}
+            />
+            <Image
+              alt="CalyM Automation"
+              className="hidden h-12 w-auto object-contain dark:block"
+              height={174}
+              src="/calym-logo-dark.png"
+              width={389}
+            />
           </div>
           <p className="mt-4 max-w-xl text-base leading-7 text-slate-600 dark:text-slate-300">
             A prompt-powered meeting and email manager for scheduling,
