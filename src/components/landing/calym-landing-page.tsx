@@ -28,8 +28,6 @@ import { motion, useReducedMotion, type TargetAndTransition } from "framer-motio
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
-
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Workflow", href: "#workflow" },
@@ -166,6 +164,8 @@ export function CalymLandingPage() {
   }
 
   async function startAutomating() {
+    const { authClient } = await import("@/lib/auth-client");
+
     await authClient.signIn.social({
       provider: "google",
       callbackURL: "/integrations",
