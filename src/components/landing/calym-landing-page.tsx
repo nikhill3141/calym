@@ -4,10 +4,11 @@ import {
   AlertTriangle,
   ArrowRight,
   BellRing,
+  Bot,
   CalendarDays,
   CalendarPlus,
   CheckCircle2,
-  Clock3,
+  Command,
   Mail,
   MailCheck,
   Menu,
@@ -652,6 +653,27 @@ function DashboardPreview({
 }: {
   floatAnimation: TargetAndTransition | undefined;
 }) {
+  const previewNavItems = ["Overview", "Priority inbox", "Agenda", "Agent actions"];
+  const activityItems = [
+    "Prepared 2 real actions from your prompt.",
+    "Loaded Gmail and Calendar data through Corsair.",
+    "Reply from Rahul categorized as reschedule.",
+  ];
+  const inboxItems = [
+    {
+      label: "Sent to",
+      name: "demo@example.com",
+      subject: "Meeting invitation prepared",
+      tone: "Meeting",
+    },
+    {
+      label: "From",
+      name: "Rahul Mehta",
+      subject: "Can we reschedule this?",
+      tone: "Reschedule",
+    },
+  ];
+
   return (
     <SectionShell
       eyebrow="Dashboard Preview"
@@ -664,10 +686,10 @@ function DashboardPreview({
           className="absolute -left-4 top-20 z-10 hidden rounded-3xl border border-cyan-200 bg-cyan-50/90 p-4 shadow-2xl shadow-cyan-500/10 backdrop-blur-xl lg:block dark:border-cyan-300/20 dark:bg-cyan-400/10"
         >
           <p className="text-base font-semibold text-cyan-800 dark:text-cyan-100">
-            Follow-up sent
+            Live data synced
           </p>
           <p className="mt-1 text-sm text-cyan-700 dark:text-cyan-200">
-            Investor sync recap
+            Gmail + Calendar ready
           </p>
         </motion.div>
         <motion.div
@@ -678,36 +700,41 @@ function DashboardPreview({
             Approval needed
           </p>
           <p className="mt-1 text-sm text-amber-700 dark:text-amber-200">
-            Rahul asked to reschedule
+            Review before write
           </p>
         </motion.div>
 
         <motion.div
-          className="mx-auto max-w-6xl rounded-[2rem] border border-slate-200/70 bg-slate-50/80 p-4 shadow-2xl shadow-blue-950/10 backdrop-blur-2xl dark:border-white/10 dark:bg-white/7"
+          className="mx-auto max-w-7xl rounded-[2rem] border border-slate-200/70 bg-slate-50/80 p-3 shadow-2xl shadow-blue-950/10 backdrop-blur-2xl dark:border-white/10 dark:bg-white/7"
           initial={{ opacity: 0, scale: 0.96, y: 24 }}
           viewport={{ once: true, margin: "-80px" }}
           whileInView={{ opacity: 1, scale: 1, y: 0 }}
         >
-          <div className="grid gap-4 rounded-[1.5rem] bg-[#eef3fb] p-4 dark:bg-[#0b1020] lg:grid-cols-[16rem_1fr]">
-            <aside className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
-              <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white">
-                  C
-                </span>
-                <div>
-                  <p className="font-semibold">CalyM</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    AI workspace
-                  </p>
-                </div>
+          <div className="grid min-h-[34rem] overflow-hidden rounded-[1.5rem] bg-[#eef3fb] dark:bg-[#0b1020] lg:grid-cols-[15.5rem_1fr]">
+            <aside className="hidden border-r border-slate-200 bg-slate-50/90 p-4 dark:border-white/10 dark:bg-slate-950/54 lg:flex lg:flex-col">
+              <div className="flex h-14 items-center">
+                <Image
+                  alt="CalyM Automation"
+                  className="h-11 w-auto object-contain dark:hidden"
+                  height={174}
+                  src="/calym-logo-light.png"
+                  width={389}
+                />
+                <Image
+                  alt="CalyM Automation"
+                  className="hidden h-11 w-auto object-contain dark:block"
+                  height={174}
+                  src="/calym-logo-dark.png"
+                  width={389}
+                />
               </div>
-              <div className="mt-6 grid gap-2">
-                {["Prompt", "Meetings", "Inbox", "Alerts"].map((item, index) => (
+              <div className="mt-5 grid gap-1.5">
+                {previewNavItems.map((item, index) => (
                   <div
                     className={cx(
-                      "rounded-2xl px-4 py-3 text-base font-medium",
+                      "rounded-xl px-3 py-2.5 text-sm font-semibold",
                       index === 0
-                        ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                        ? "border border-indigo-200 bg-indigo-50 text-indigo-900 shadow-sm dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100"
                         : "text-slate-600 dark:text-slate-300",
                     )}
                     key={item}
@@ -716,66 +743,188 @@ function DashboardPreview({
                   </div>
                 ))}
               </div>
-            </aside>
-
-            <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
-              <div className="grid gap-4">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-white/5">
-                  <p className="text-base font-medium text-blue-700 dark:text-blue-200">
-                    AI prompt command bar
-                  </p>
-                  <div className="mt-3 rounded-2xl border border-blue-100 bg-slate-100 p-4 text-lg font-medium dark:border-blue-300/20 dark:bg-slate-950">
-                    Reschedule Rahul to Friday and send a polite update.
-                  </div>
+              <div className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4 dark:border-white/10">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-indigo-600 dark:text-indigo-300" />
+                  <p className="text-sm font-semibold">Activity</p>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <PreviewCard
-                    icon={CalendarDays}
-                    title="Upcoming meetings"
-                    value="4 today"
-                  />
-                  <PreviewCard
-                    icon={Mail}
-                    title="Email follow-up"
-                    value="2 waiting"
-                  />
-                </div>
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-white/5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-xl font-semibold">Meeting list</h3>
-                    <Clock3 className="size-5 text-slate-500" />
-                  </div>
-                  {["Investor check-in", "Client onboarding", "Team planning"].map(
-                    (item, index) => (
-                      <div
-                        className="mt-4 flex items-center justify-between rounded-2xl bg-slate-100 p-4 dark:bg-white/6"
-                        key={item}
-                      >
-                        <span className="text-base font-medium">{item}</span>
-                        <span className="text-sm text-slate-500 dark:text-slate-400">
-                          {index + 2}:00 PM
-                        </span>
-                      </div>
-                    ),
-                  )}
+                <div className="mt-3 grid gap-3">
+                  {activityItems.map((item, index) => (
+                    <div
+                      className="relative border-l border-slate-200 pl-3 text-xs leading-5 text-slate-600 dark:border-white/10 dark:text-slate-300"
+                      key={item}
+                    >
+                      <span
+                        className={cx(
+                          "absolute -left-[5px] top-1 size-2.5 rounded-full ring-4 ring-slate-50 dark:ring-[#0b1020]",
+                          index === 0 ? "bg-cyan-500" : "bg-indigo-300",
+                        )}
+                      />
+                      {item}
+                    </div>
+                  ))}
                 </div>
               </div>
+            </aside>
 
-              <div className="grid gap-4">
-                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-300/20 dark:bg-amber-400/10">
-                  <BellRing className="size-6 text-amber-600 dark:text-amber-300" />
-                  <h3 className="mt-4 text-xl font-semibold">Reschedule alert</h3>
-                  <p className="mt-2 text-base leading-7 text-amber-800 dark:text-amber-100">
-                    Rahul is busy at that time. Approve a new slot before CalyM
-                    sends an update.
+            <div className="min-w-0">
+              <header className="flex flex-col justify-between gap-3 border-b border-slate-200 bg-slate-50/86 px-5 py-4 dark:border-white/10 dark:bg-slate-950/42 md:flex-row md:items-center">
+                <div>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                    Overview
                   </p>
+                  <h3 className="text-2xl font-semibold">Welcome, Nikhil</h3>
                 </div>
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-white/5">
-                  <Send className="size-6 text-violet-600 dark:text-violet-300" />
-                  <h3 className="mt-4 text-xl font-semibold">Follow-up status</h3>
-                  <p className="mt-2 text-base text-slate-600 dark:text-slate-300">
-                    7 emails generated. 5 sent. 2 need confirmation.
-                  </p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-white/7 dark:text-slate-200">
+                    Refresh live data
+                  </span>
+                  <span className="rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500 px-3 py-2 text-sm font-semibold text-white">
+                    Ask CalyM
+                  </span>
+                </div>
+              </header>
+
+              <div className="grid gap-4 p-4 xl:grid-cols-[1fr_22rem]">
+                <div className="grid gap-4">
+                  <div className="grid gap-3 md:grid-cols-4">
+                    {[
+                      ["Inbox threads", "12"],
+                      ["Upcoming events", "5"],
+                      ["Prepared actions", "2"],
+                      ["Connections", "2/2"],
+                    ].map(([label, value], index) => (
+                      <div
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-lg shadow-blue-950/5 dark:border-white/10 dark:bg-white/6"
+                        key={label}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          {label}
+                        </p>
+                        <p className="mt-2 text-3xl font-semibold">{value}</p>
+                        <span
+                          className={cx(
+                            "mt-3 block h-1 rounded-full",
+                            index === 0
+                              ? "bg-indigo-500"
+                              : index === 1
+                                ? "bg-cyan-500"
+                                : index === 2
+                                  ? "bg-amber-400"
+                                  : "bg-violet-500",
+                          )}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-lg shadow-blue-950/5 dark:border-white/10 dark:bg-white/6">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-2xl border border-indigo-100 bg-indigo-50 p-3 text-indigo-700 dark:border-indigo-300/20 dark:bg-indigo-400/10 dark:text-indigo-100">
+                        <Command className="size-5" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+                          Prompt composer
+                        </p>
+                        <h4 className="text-2xl font-semibold">
+                          Prepare mail and meeting actions
+                        </h4>
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-lg font-medium leading-8 shadow-inner dark:border-white/10 dark:bg-slate-950/70">
+                      Send a calendar invite to demo@example.com at 9 AM next
+                      Thursday. Send them an email too saying I look forward to
+                      our meeting.
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-lg shadow-blue-950/5 dark:border-white/10 dark:bg-white/6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xl font-semibold">Priority inbox</h4>
+                        <Mail className="size-5 text-cyan-600 dark:text-cyan-300" />
+                      </div>
+                      <div className="mt-4 grid gap-3">
+                        {inboxItems.map((item) => (
+                          <div
+                            className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-white/7"
+                            key={item.subject}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  {item.label}
+                                </p>
+                                <p className="truncate text-base font-semibold text-indigo-700 dark:text-indigo-200">
+                                  {item.name}
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-400/10 dark:text-cyan-100">
+                                {item.tone}
+                              </span>
+                            </div>
+                            <p className="mt-2 line-clamp-1 text-base font-semibold">
+                              {item.subject}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-lg shadow-blue-950/5 dark:border-white/10 dark:bg-white/6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xl font-semibold">Agenda</h4>
+                        <CalendarDays className="size-5 text-cyan-600 dark:text-cyan-300" />
+                      </div>
+                      <div className="mt-4 grid gap-3">
+                        {["09:00 Review connection flow", "13:30 Calendar automation", "17:00 Demo rehearsal"].map(
+                          (item) => (
+                            <div
+                              className="rounded-2xl border border-slate-200 bg-white p-3 text-base font-medium dark:border-white/10 dark:bg-white/7"
+                              key={item}
+                            >
+                              {item}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div className="rounded-3xl border border-indigo-200 bg-indigo-50 p-4 shadow-lg shadow-indigo-500/8 dark:border-indigo-300/20 dark:bg-indigo-400/10">
+                    <div className="flex items-center gap-3">
+                      <Bot className="size-6 text-indigo-700 dark:text-indigo-200" />
+                      <h4 className="text-xl font-semibold">Action queue</h4>
+                    </div>
+                    <p className="mt-3 text-base leading-7 text-indigo-950 dark:text-indigo-50">
+                      Calendar invite and Gmail draft are ready for approval.
+                    </p>
+                    <button
+                      className="mt-4 w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-3 text-base font-semibold text-white"
+                      type="button"
+                    >
+                      Create calendar invite
+                    </button>
+                  </div>
+                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 shadow-lg shadow-amber-500/8 dark:border-amber-300/20 dark:bg-amber-400/10">
+                    <BellRing className="size-6 text-amber-600 dark:text-amber-300" />
+                    <h4 className="mt-4 text-xl font-semibold">Reschedule detected</h4>
+                    <p className="mt-2 text-base leading-7 text-amber-800 dark:text-amber-100">
+                      Negative and busy replies are grouped for review before
+                      any update is sent.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-lg shadow-blue-950/5 dark:border-white/10 dark:bg-white/6">
+                    <Send className="size-6 text-violet-600 dark:text-violet-300" />
+                    <h4 className="mt-4 text-xl font-semibold">Fast actions</h4>
+                    <p className="mt-2 text-base text-slate-600 dark:text-slate-300">
+                      Compose email, create meeting, search mail, and archive
+                      threads from one workspace.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -783,24 +932,6 @@ function DashboardPreview({
         </motion.div>
       </div>
     </SectionShell>
-  );
-}
-
-function PreviewCard({
-  icon: Icon,
-  title,
-  value,
-}: {
-  icon: LucideIcon;
-  title: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-white/10 dark:bg-white/5">
-      <Icon className="size-6 text-blue-600 dark:text-cyan-300" />
-      <p className="mt-5 text-base text-slate-500 dark:text-slate-400">{title}</p>
-      <p className="mt-1 text-3xl font-semibold">{value}</p>
-    </div>
   );
 }
 

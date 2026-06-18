@@ -13,13 +13,45 @@ type PreparedAction = {
   category?: ReplyCategory;
   confirmationLabel: string;
   description: string;
+  emailSubject?: string;
   id: string;
   payload: Record<string, unknown>;
   recipientEmail?: string;
   risk: "low" | "high";
+  sentBody?: string;
   sourceCommand?: string;
   title: string;
   type: ActionType;
+};
+
+type CalendarEventsOutput = {
+  items?: {
+    end?: { date?: string; dateTime?: string };
+    id?: string;
+    start?: { date?: string; dateTime?: string };
+    summary?: string;
+  }[];
+};
+
+type CalendarConflict = {
+  events: {
+    end: string;
+    start: string;
+    title: string;
+  }[];
+  message: string;
+  requestedTime: string;
+};
+
+type CorsairTenant = Awaited<ReturnType<typeof getCorsairTenant>>;
+
+type DirectEmailBody = {
+  body?: string;
+  eventTitle?: string;
+  mode?: "execute" | "prepare" | "send_custom_email" | "send_reschedule_email";
+  newDateTime?: string;
+  recipientEmail?: string;
+  subject?: string;
 };
 
 const weekdays = {
@@ -247,10 +279,137 @@ function buildEventWindow(command: string) {
   return { end, start };
 }
 
-function prepareActions(command: string, timeZone: string) {
+function formatDateTime(value: Date) {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(value);
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value || "All day";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function startOfRequestedDay(date: Date) {
+  const start = new Date(date);
+
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function endOfRequestedDay(date: Date) {
+  const end = new Date(date);
+
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
+
+function overlapsWindow({
+  eventEnd,
+  eventStart,
+  requestedEnd,
+  requestedStart,
+}: {
+  eventEnd: string;
+  eventStart: string;
+  requestedEnd: Date;
+  requestedStart: Date;
+}) {
+  const start = new Date(eventStart);
+  const end = new Date(eventEnd);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return false;
+  }
+
+  return start < requestedEnd && end > requestedStart;
+}
+
+async function getCalendarConflicts({
+  end,
+  start,
+  tenant,
+}: {
+  end: Date;
+  start: Date;
+  tenant: CorsairTenant;
+}) {
+  const dayStart = startOfRequestedDay(start);
+  const dayEnd = endOfRequestedDay(start);
+  const result = await tenant.run<CalendarEventsOutput>(
+    "googlecalendar.api.events.getMany",
+    {
+      calendarId: "primary",
+      orderBy: "startTime",
+      singleEvents: true,
+      timeMax: dayEnd.toISOString(),
+      timeMin: dayStart.toISOString(),
+    },
+  );
+
+  if (!result.success) {
+    return {
+      conflict: undefined,
+      conflictSummary: "Google Calendar needs to be reconnected before I can check your availability.",
+      signInLink: result.signInLink,
+    };
+  }
+
+  const dayEvents = (result.data.items ?? [])
+    .map((event) => ({
+      end: event.end?.dateTime ?? event.end?.date ?? "",
+      start: event.start?.dateTime ?? event.start?.date ?? "",
+      title: event.summary ?? "Untitled event",
+    }))
+    .filter((event) => event.start);
+  const overlappingEvents = dayEvents.filter((event) =>
+    overlapsWindow({
+      eventEnd: event.end,
+      eventStart: event.start,
+      requestedEnd: end,
+      requestedStart: start,
+    }),
+  );
+
+  if (overlappingEvents.length === 0) {
+    return { conflict: undefined, conflictSummary: "", signInLink: undefined };
+  }
+
+  const requestedTime = `${formatDateTime(start)} - ${formatTime(end.toISOString())}`;
+  const overlapText = overlappingEvents
+    .map((event) => `${event.title} (${formatTime(event.start)} - ${formatTime(event.end)})`)
+    .join(", ");
+  const dayText = dayEvents
+    .map((event) => `${formatTime(event.start)} ${event.title}`)
+    .join("; ");
+
+  const message = `You already have a meeting at ${requestedTime}. Please choose another time before sending the invite or email.`;
+
+  return {
+    conflict: {
+      events: dayEvents,
+      message,
+      requestedTime,
+    } satisfies CalendarConflict,
+    conflictSummary: `${message} Conflict: ${overlapText}. Your calendar that day: ${dayText}.`,
+    signInLink: undefined,
+  };
+}
+
+async function prepareActions(command: string, timeZone: string, tenant: CorsairTenant) {
   const normalizedCommand = command.toLowerCase();
   const recipient = extractEmail(command);
   const actions: PreparedAction[] = [];
+  let conflictSummary = "";
 
   if (!recipient) {
     return {
@@ -279,6 +438,26 @@ function prepareActions(command: string, timeZone: string) {
 
   if (wantsCalendar && replyCategory !== "reschedule" && replyCategory !== "decline") {
     const { end, start } = buildEventWindow(command);
+    const conflicts = await getCalendarConflicts({ end, start, tenant });
+
+    if (conflicts.signInLink) {
+      return {
+        actions,
+        conflict: conflicts.conflict,
+        signInLink: conflicts.signInLink,
+        summary: conflicts.conflictSummary,
+      };
+    }
+
+    conflictSummary = conflicts.conflictSummary;
+
+    if (conflictSummary) {
+      return {
+        actions: [],
+        conflict: conflicts.conflict,
+        summary: conflictSummary,
+      };
+    }
 
     actions.push({
       category: replyCategory,
@@ -298,6 +477,7 @@ function prepareActions(command: string, timeZone: string) {
       },
       recipientEmail: recipient,
       risk: "high",
+      sentBody: message,
       sourceCommand: command,
       title: "Calendar invite",
       type: "calendar_event",
@@ -321,12 +501,14 @@ function prepareActions(command: string, timeZone: string) {
       category: replyCategory,
       confirmationLabel: shouldSend ? "Send email now" : "Create Gmail draft",
       description: `${shouldSend ? "Send" : "Create a draft for"} ${recipient} with subject "${subject}".`,
+      emailSubject: subject,
       id: crypto.randomUUID(),
       payload: shouldSend
         ? { raw, userId: "me" }
         : { draft: { message: { raw } }, userId: "me" },
       recipientEmail: recipient,
       risk: shouldSend ? "high" : "low",
+      sentBody: buildReplyBody(message, replyCategory),
       sourceCommand: command,
       title: shouldSend ? "Send email" : "Gmail draft",
       type: shouldSend ? "email_send" : "email_draft",
@@ -335,9 +517,10 @@ function prepareActions(command: string, timeZone: string) {
 
   return {
     actions,
-    summary: actions.length
-      ? `Prepared ${actions.length} real action${actions.length === 1 ? "" : "s"} from your prompt.`
-      : "I understood the prompt, but it does not match a supported Gmail or Calendar action yet.",
+    summary: conflictSummary ||
+      (actions.length
+        ? `Prepared ${actions.length} real action${actions.length === 1 ? "" : "s"} from your prompt.`
+        : "I understood the prompt, but it does not match a supported Gmail or Calendar action yet."),
   };
 }
 
@@ -403,6 +586,51 @@ async function executeAction(action: PreparedAction) {
   return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
 }
 
+async function sendDirectEmail(body: DirectEmailBody) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!body.recipientEmail) {
+    return NextResponse.json(
+      { error: "Add a recipient email before sending this message." },
+      { status: 400 },
+    );
+  }
+
+  const subject =
+    body.subject?.trim() ||
+    `Reschedule request: ${body.eventTitle || "our meeting"}`;
+  const raw = buildRawEmail({
+    body:
+      body.body?.trim() ||
+      `Hi,\n\nI need to reschedule "${body.eventTitle || "our meeting"}". Could we move it to ${body.newDateTime || "another suitable time"}?\n\nThank you.`,
+    subject,
+    to: body.recipientEmail,
+  });
+  const tenant = await getCorsairTenant(session.user.id);
+  const result = await tenant.run("gmail.api.messages.send", {
+    raw,
+    userId: "me",
+  });
+
+  if (!result.success) {
+    return NextResponse.json(
+      { error: "Gmail needs to be reconnected.", signInLink: result.signInLink },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json({
+    message: "Email sent.",
+    result: result.data,
+  });
+}
+
 export async function POST(request: Request) {
   const session = await auth.api.getSession({
     headers: await headers(),
@@ -415,9 +643,18 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     action?: PreparedAction;
     command?: string;
-    mode?: "execute" | "prepare";
+    body?: string;
+    eventTitle?: string;
+    mode?: "execute" | "prepare" | "send_custom_email" | "send_reschedule_email";
+    newDateTime?: string;
+    recipientEmail?: string;
+    subject?: string;
     timeZone?: string;
   };
+
+  if (body.mode === "send_reschedule_email" || body.mode === "send_custom_email") {
+    return sendDirectEmail(body);
+  }
 
   if (body.mode === "execute" && body.action) {
     return executeAction(body.action);
@@ -430,9 +667,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const prepared = prepareActions(
+  const tenant = await getCorsairTenant(session.user.id);
+  const prepared = await prepareActions(
     body.command,
     body.timeZone || "Asia/Calcutta",
+    tenant,
   );
 
   return NextResponse.json(prepared);

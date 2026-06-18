@@ -16,7 +16,10 @@ type GmailMessage = {
   snippet?: string;
   internalDate?: string | number | Date | null;
   payload?: {
+    body?: { data?: string };
     headers?: { name?: string; value?: string }[];
+    mimeType?: string;
+    parts?: GmailMessage["payload"][];
   };
 };
 
@@ -44,7 +47,7 @@ function headerValue(message: GmailMessage, name: string) {
 }
 
 function fallbackSubjectFromSnippet(snippet: string) {
-  const cleaned = snippet
+  const cleaned = cleanEmailText(snippet)
     .replace(/\s+/g, " ")
     .replace(/^(re|fw|fwd):\s*/i, "")
     .trim();
@@ -57,6 +60,107 @@ function fallbackSubjectFromSnippet(snippet: string) {
   const subject = words.length > 64 ? `${words.slice(0, 61)}...` : words;
 
   return `${subject[0]?.toUpperCase() ?? "E"}${subject.slice(1)}`;
+}
+
+function decodeHtmlEntities(value: string) {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: "\"",
+    rsquo: "'",
+    lsquo: "'",
+    rdquo: "\"",
+    ldquo: "\"",
+    ndash: "-",
+    mdash: "-",
+  };
+
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code: string) => {
+    const normalizedCode = code.toLowerCase();
+
+    if (normalizedCode.startsWith("#x")) {
+      return String.fromCodePoint(Number.parseInt(normalizedCode.slice(2), 16));
+    }
+
+    if (normalizedCode.startsWith("#")) {
+      return String.fromCodePoint(Number.parseInt(normalizedCode.slice(1), 10));
+    }
+
+    return namedEntities[normalizedCode] ?? entity;
+  });
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function cleanEmailText(value: string) {
+  return decodeHtmlEntities(stripHtml(value))
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function stripQuotedReply(value: string) {
+  return value
+    .split(/\n\s*On .+ wrote:\s*/i)[0]
+    .split(/\n\s*From:\s*/i)[0]
+    .split(/\n\s*-{2,}\s*Original Message\s*-{2,}/i)[0]
+    .split(/\n\s*_{6,}/)[0]
+    .split(/\n\s*>/)[0]
+    .trim();
+}
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "=",
+  );
+
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function extractMessageBody(payload: GmailMessage["payload"]): string {
+  if (!payload) {
+    return "";
+  }
+
+  if (payload.body?.data) {
+    return cleanEmailText(decodeBase64Url(payload.body.data));
+  }
+
+  const parts = (payload.parts ?? []).filter(Boolean);
+  const plainPart = parts.find((part) => part?.mimeType === "text/plain");
+  const htmlPart = parts.find((part) => part?.mimeType === "text/html");
+
+  if (plainPart?.body?.data) {
+    return cleanEmailText(decodeBase64Url(plainPart.body.data));
+  }
+
+  if (htmlPart?.body?.data) {
+    return cleanEmailText(decodeBase64Url(htmlPart.body.data));
+  }
+
+  for (const part of parts) {
+    const body = extractMessageBody(part);
+
+    if (body) {
+      return body;
+    }
+  }
+
+  return "";
 }
 
 function emailFromHeader(header: string) {
@@ -132,7 +236,7 @@ export async function GET() {
 
   const [messageList, events] = await Promise.all([
     tenant.run<GmailListOutput>("gmail.api.messages.list", {
-      maxResults: 8,
+      maxResults: 15,
       q: "newer_than:30d",
       userId: "me",
     }),
@@ -167,10 +271,10 @@ export async function GET() {
   const messageDetails = await Promise.all(
     messages
       .filter((message) => message.id)
-      .slice(0, 8)
+      .slice(0, 15)
       .map((message) =>
         tenant.run<GmailMessage>("gmail.api.messages.get", {
-          format: "metadata",
+          format: "full",
           id: message.id,
           metadataHeaders: ["From", "To", "Subject", "Date"],
           userId: "me",
@@ -191,14 +295,16 @@ export async function GET() {
     .filter((result) => result.success)
     .map((result) => result.data)
     .map((message) => {
-      const snippet = message.snippet ?? "";
-      const subject = headerValue(message, "Subject").trim();
+      const snippet = cleanEmailText(message.snippet ?? "");
+      const body = stripQuotedReply(extractMessageBody(message.payload) || snippet) || snippet;
+      const subject = cleanEmailText(headerValue(message, "Subject"));
       const fromHeader = headerValue(message, "From");
       const toHeader = headerValue(message, "To");
       const fromEmail = emailFromHeader(fromHeader);
       const toEmail = emailFromHeader(toHeader);
 
       return {
+        body,
         date: headerValue(message, "Date"),
         from: readableContact(fromHeader, fromEmail || "Unknown sender"),
         fromEmail,
